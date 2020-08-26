@@ -41,31 +41,52 @@ def slack_upload(self, msg, buf):
 class ShellExec(BotPlugin):
     """
     Class that dynamically creates bot actions based on a set of shell scripts
-    in the form of command_action.sh
-    ex. deploy_emp.yml
     """
     min_err_version = '3.0.0'  # Optional, but recommended
 
-    def __init__(self, bot):
+    def __init__(self, bot,*args,**kwargs):
         """
         Constructor
         """
-        super(ShellExec, self).__init__(bot)
+        super(ShellExec, self).__init__(bot,*args,**kwargs)
         self.dynamic_plugin = None
 
     def activate(self):
         """
         Activate this plugin,
         """
-        super(ShellExec, self).activate()
+        super().activate()
         self._load_shell_commands()
 
     def deactivate(self):
         """
         Deactivate this plugin
         """
-        super(ShellExec, self).deactivate()
+        super().deactivate()
         self._bot.remove_commands_from(self.dynamic_plugin)
+
+    @botcmd(split_args_with=' ', admin_only=True)
+    def fx_list_hosts(self, _, args):
+        """
+        Show all fx server.
+        """
+        pass
+
+    @botcmd(admin_only=True)
+    def fx_list_actions(self, msg, args):
+        """
+        Show all fx server.
+        """
+        pass
+
+    @botcmd(admin_only=True)
+    def fx_crypto(self, msg, args):
+        """
+        !crypto fx01 chat restart   or !crypto fx01 chat restart
+        """
+        self.log.debug("Unloading ShellExec Scripts%s  %s"%( msg, args))
+
+        return ("Done unloading commands.")
 
     @botcmd
     def cmdunload(self, msg, args):
@@ -76,6 +97,7 @@ class ShellExec(BotPlugin):
         if self.dynamic_plugin is not None:
             self._bot.remove_commands_from(self.dynamic_plugin)
         return ("Done unloading commands.")
+
 
     @botcmd
     def rehash(self, msg, args):
