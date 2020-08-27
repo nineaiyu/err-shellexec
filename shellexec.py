@@ -4,7 +4,7 @@ from errbot import BotPlugin, botcmd
 from os import listdir
 from os.path import isfile, join
 import logging
-import hashlib
+import uuid
 import threading
 import queue
 from datetime import datetime
@@ -26,19 +26,7 @@ def status_to_string(exit_code):
 
 
 def slack_upload(self, msg, buf):
-    if msg.is_group:
-        to_channel_id = msg.to.id
-    else:
-        to_channel_id = msg.to.channelid
-        if to_channel_id.startswith('C'):
-            log.debug("This is a divert to private msgage, sending it directly to the user.")
-            to_channel_id = self.get_im_channel(self.username_to_userid(msg.to.username))
-    self._bot.api_call('files.upload', data={
-        'channels': to_channel_id,
-        'content': buf,
-        'filename': hashlib.sha224(buf.encode('utf-8')).hexdigest(),
-        'filetype': 'text',
-    })
+    self._bot.send_stream_content(msg._extras['room_id'],buf.encode("utf-8"),uuid.uuid1().hex+'.log')
 
 
 class ProcRun(object):
@@ -273,6 +261,7 @@ class ShellExec(BotPlugin):
             t.start()
             time.sleep(0.5)
             snippets = False
+            sleeptime=3
             while t.isAlive() or not q.empty():
                 lines = []
                 while not q.empty():
@@ -280,18 +269,20 @@ class ShellExec(BotPlugin):
                     if line is None:
                         break
                     lines.append(line.rstrip())
+
                 while len(lines) > 0:
                     if len(lines) >= 25:
                         snippets = True
-                    chunk = lines[:100]
+                    chunk = lines[:100000]
                     if snippets:
                         self.slack_upload(msg, '\n'.join(chunk))
+                        sleeptime=10
                     else:
-                        buf = '\`\`\`' + '\n'.join(chunk) + '\`\`\`'
+                        buf = '```' + '\n'.join(chunk) + '```'
                         self.log.debug(buf)
                         yield buf
-                    lines = lines[100:]
-                time.sleep(2)
+                    lines = lines[100000:]
+                time.sleep(sleeptime)
             t.join()
             yield "[{}] completed {}".format(command_name, status_to_string(proc.rc))
 
