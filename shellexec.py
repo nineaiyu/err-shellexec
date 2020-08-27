@@ -26,7 +26,7 @@ def status_to_string(exit_code):
 
 
 def slack_upload(self, msg, buf):
-    self._bot.send_stream_content(msg._extras['room_id'],buf.encode("utf-8"),uuid.uuid1().hex+'.log')
+    self._bot.send_stream_content(msg._extras['room_id'], buf.encode("utf-8"), uuid.uuid1().hex + '.log')
 
 
 class ProcRun(object):
@@ -44,7 +44,7 @@ class ProcRun(object):
         self.err = None
         self.returncode = None
         self.exc = None
-        self.time_format = '%Y-%m-%d-%H:%M:%S'
+        self.time_format = '%Y-%m-%d-%H.%M.%S'
         self.stdout_lines = []
         self.stderr_lines = []
         self.q = q
@@ -55,7 +55,6 @@ class ProcRun(object):
         tstamp = datetime.fromtimestamp(time.time()).strftime(self.time_format)
         log_file_name = os.path.join(self.log_path, "{}-{}-{}.log".format(
             os.path.basename(self.cmd), tstamp, user))
-        print(log_file_name)
         return open(log_file_name, "wb", 0)
 
     def expand_args(self, args):
@@ -93,9 +92,6 @@ class ProcRun(object):
 
         # Open the log file
         self.start_log(user, cmd_args)
-        print(self.cmd)
-        print(arg_str)
-        print(str(cmd_args))
 
         self.process = subprocess.Popen(cmd_args,
                                         universal_newlines=True,
@@ -134,38 +130,22 @@ class ShellExec(BotPlugin):
     """
     Class that dynamically creates bot actions based on a set of shell scripts
     """
-    min_err_version = '3.0.0'  # Optional, but recommended
+    min_err_version = '3.0.0'
 
     def __init__(self, bot, *args, **kwargs):
-        """
-        Constructor
-        """
         super(ShellExec, self).__init__(bot, *args, **kwargs)
         self.dynamic_plugin = None
 
     def activate(self):
-        """
-        Activate this plugin,
-        """
         super().activate()
         self._load_shell_commands()
 
     def deactivate(self):
-        """
-        Deactivate this plugin
-        """
         super().deactivate()
         self._bot.remove_commands_from(self.dynamic_plugin)
 
     @botcmd(split_args_with=' ', admin_only=True)
     def fx_list_hosts(self, _, args):
-        """
-        Show all fx server.
-        """
-        pass
-
-    @botcmd(admin_only=True)
-    def fx_list_actions(self, msg, args):
         """
         Show all fx server.
         """
@@ -180,7 +160,7 @@ class ShellExec(BotPlugin):
 
         return ("Done unloading commands.")
 
-    @botcmd
+    @botcmd(split_args_with=' ', admin_only=True)
     def cmdunload(self, msg, args):
         """
         Remove the dynamically added shell commands and the ShellCmd object.
@@ -190,7 +170,7 @@ class ShellExec(BotPlugin):
             self._bot.remove_commands_from(self.dynamic_plugin)
         return ("Done unloading commands.")
 
-    @botcmd
+    @botcmd(split_args_with=' ', admin_only=True)
     def cmdload(self, msg, args):
         """
         Load the previous set of methods and add new ones based on the
@@ -250,18 +230,17 @@ class ShellExec(BotPlugin):
 
         def new_method(self, msg, args, command_name=command_name):
             # Get who ran the command
-            user = 'dddddddddd'
+            user = msg.frm.user_id
             # The full command to run
             os_cmd = join(self.command_path, command_name + ".sh")
             q = queue.Queue()
             proc = ProcRun(os_cmd, self.command_path, self.command_logs_path, q)
-            print("args: " + str(args))
             t = threading.Thread(target=ProcRun.run_async,
                                  args=(proc, user), kwargs={'arg_str': args})
             t.start()
-            time.sleep(0.5)
+            time.sleep(2)
             snippets = False
-            sleeptime=3
+            sleeptime = 3
             while t.isAlive() or not q.empty():
                 lines = []
                 while not q.empty():
@@ -271,12 +250,12 @@ class ShellExec(BotPlugin):
                     lines.append(line.rstrip())
 
                 while len(lines) > 0:
-                    if len(lines) >= 25:
+                    if len(lines) >= 20:
                         snippets = True
                     chunk = lines[:100000]
                     if snippets:
                         self.slack_upload(msg, '\n'.join(chunk))
-                        sleeptime=10
+                        sleeptime = 10
                     else:
                         buf = '```' + '\n'.join(chunk) + '```'
                         self.log.debug(buf)
