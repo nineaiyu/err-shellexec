@@ -5,23 +5,25 @@ from os import listdir
 from os.path import isfile, join
 import logging
 import hashlib
-import subprocess
-
 import threading
-import time
 import queue
-
-import procrun
+from datetime import datetime
+import os
+import shlex
+import subprocess
+import time
 
 # Logger for the shell_exec command
 log = logging.getLogger("shell_exec")
-SCRIPT_PATH = '/opt/errbot/cmds'
-SCRIPT_LOGS = '/var/log/errbot/shellexec'
+SCRIPT_PATH = '/data/errbot/cmds'
+SCRIPT_LOGS = '/data/logs/errbot/shellexec'
+
 
 def status_to_string(exit_code):
     if exit_code == 0:
         return "successfully"
     return "unsuccessfully"
+
 
 def slack_upload(self, msg, buf):
     if msg.is_group:
@@ -36,7 +38,109 @@ def slack_upload(self, msg, buf):
         'content': buf,
         'filename': hashlib.sha224(buf.encode('utf-8')).hexdigest(),
         'filetype': 'text',
-})
+    })
+
+
+class ProcRun(object):
+    """
+    Wrapper around subprocess.Popen to treat execution as a generator or text.
+    """
+
+    def __init__(self, cmd, cwd, log_path, q):
+        """ Initialize a """
+        self.cmd = cmd
+        self.cwd = cwd
+        self.log_path = log_path
+        self.process = None
+        self.out = None
+        self.err = None
+        self.returncode = None
+        self.exc = None
+        self.time_format = '%Y-%m-%d-%H:%M:%S'
+        self.stdout_lines = []
+        self.stderr_lines = []
+        self.q = q
+        self.rc = 0
+
+    def open_log(self, user):
+        """Open the command log file """
+        tstamp = datetime.fromtimestamp(time.time()).strftime(self.time_format)
+        log_file_name = os.path.join(self.log_path, "{}-{}-{}.log".format(
+            os.path.basename(self.cmd), tstamp, user))
+        print(log_file_name)
+        return open(log_file_name, "wb", 0)
+
+    def expand_args(self, args):
+        """Return [] if args is None, the array of args or an array of arguments split from a string. """
+        if args is not None:
+            if len(args):
+                if isinstance(args, str) or isinstance(args, str):
+                    return shlex.split(args)
+                if isinstance(args, list):
+                    return args
+        return []
+
+    def start_log(self, user, cmd_args):
+        """Open the command log"""
+        self._exec_log = self.open_log(user)
+        self._exec_log.write(bytes("Starting Command [{}] as [{}]\n".format(" ".join(cmd_args), user), 'UTF-8'))
+
+    def end_log(self):
+        """Close the command log"""
+        self._exec_log.flush()
+        self._exec_log.close()
+
+    def write_log(self, data):
+        """Write a row of data to the command log"""
+        self._exec_log.write(bytes(data, 'UTF-8'))
+        return data
+
+    def run_async(self, user, arg_str=None, data=None, env={}, save=True):
+        """ Run a the command asynchronously """
+        # Get the environment, or set the environment
+        environ = dict(os.environ).update(env or {})
+
+        # Create the array of arguments for the subprocess call
+        cmd_args = [self.cmd] + self.expand_args(arg_str)
+
+        # Open the log file
+        self.start_log(user, cmd_args)
+        print(self.cmd)
+        print(arg_str)
+        print(str(cmd_args))
+
+        self.process = subprocess.Popen(cmd_args,
+                                        universal_newlines=True,
+                                        shell=False,
+                                        env=environ,
+                                        stdin=subprocess.PIPE,
+                                        stdout=subprocess.PIPE,
+                                        stderr=subprocess.STDOUT,
+                                        bufsize=0, )
+
+        while True:
+            output = self.process.stdout.readline()
+            if output == '' and self.process.poll() is not None:
+                # Process is done
+                break
+            if output:
+                self.write_log(output)
+                self.q.put(output)
+        # Capture the return code
+        self.rc = self.process.poll()
+        # Done with the log
+        self.end_log()
+        self.q.put(None)
+
+    def run(self, user, args=None, data=None, env={}, save=True):
+        """ Run a command, giving arguments, and potentially STDIN """
+        cmd_res = []
+        for line in self.run_async(user, args=args, data=data, env=env):
+            cmd_res.append(line)
+        if save:
+            self.stdout_lines = cmd_res
+        return cmd_res
+
 
 class ShellExec(BotPlugin):
     """
@@ -44,11 +148,11 @@ class ShellExec(BotPlugin):
     """
     min_err_version = '3.0.0'  # Optional, but recommended
 
-    def __init__(self, bot,*args,**kwargs):
+    def __init__(self, bot, *args, **kwargs):
         """
         Constructor
         """
-        super(ShellExec, self).__init__(bot,*args,**kwargs)
+        super(ShellExec, self).__init__(bot, *args, **kwargs)
         self.dynamic_plugin = None
 
     def activate(self):
@@ -84,7 +188,7 @@ class ShellExec(BotPlugin):
         """
         !crypto fx01 chat restart   or !crypto fx01 chat restart
         """
-        self.log.debug("Unloading ShellExec Scripts%s  %s"%( msg, args))
+        self.log.debug("Unloading ShellExec Scripts%s  %s" % (msg, args))
 
         return ("Done unloading commands.")
 
@@ -98,11 +202,10 @@ class ShellExec(BotPlugin):
             self._bot.remove_commands_from(self.dynamic_plugin)
         return ("Done unloading commands.")
 
-
     @botcmd
-    def rehash(self, msg, args):
+    def cmdload(self, msg, args):
         """
-        Remove the previous set of methods and add new ones based on the
+        Load the previous set of methods and add new ones based on the
         current set of scripts.
         """
         self.log.debug("Reloading ShellExec Scripts")
@@ -131,13 +234,14 @@ class ShellExec(BotPlugin):
             file, _ = file.split(".")
             commands[file] = self._create_method(file)
 
-        plugin_class = type("ShellCmd", (BotPlugin, ), commands)
+        plugin_class = type("ShellCmd", (BotPlugin,), commands)
         plugin_class.__errdoc__ = 'The ShellCmd plugin is created and managed by the ShellExec plugin.'
         plugin_class.command_path = SCRIPT_PATH
         plugin_class.command_logs_path = SCRIPT_LOGS
         plugin_class.slack_upload = slack_upload
 
         self.dynamic_plugin = plugin_class(self._bot)
+        self.dynamic_plugin._name = 'ShellCmd'
         self.log.debug("Registering Dynamic Plugin: %s" % (self.dynamic_plugin))
         self._bot.inject_commands_from(self.dynamic_plugin)
 
@@ -148,7 +252,7 @@ class ShellExec(BotPlugin):
         """
         os_cmd = join(SCRIPT_PATH, command_name + ".sh")
         log.debug("Getting help info for '{}'".format(os_cmd))
-        return subprocess.check_output([os_cmd, "--help"])
+        return subprocess.check_output([os_cmd, "--help"]).decode('utf-8')
 
     def _create_method(self, command_name):
         """
@@ -158,14 +262,14 @@ class ShellExec(BotPlugin):
 
         def new_method(self, msg, args, command_name=command_name):
             # Get who ran the command
-            user = msg.frm.userid
+            user = 'dddddddddd'
             # The full command to run
             os_cmd = join(self.command_path, command_name + ".sh")
             q = queue.Queue()
-            proc = procrun.ProcRun(os_cmd, self.command_path, self.command_logs_path, q)
+            proc = ProcRun(os_cmd, self.command_path, self.command_logs_path, q)
             print("args: " + str(args))
-            t = threading.Thread(target=procrun.ProcRun.run_async,
-                args=(proc, user), kwargs={'arg_str':args})
+            t = threading.Thread(target=ProcRun.run_async,
+                                 args=(proc, user), kwargs={'arg_str': args})
             t.start()
             time.sleep(0.5)
             snippets = False
@@ -181,11 +285,11 @@ class ShellExec(BotPlugin):
                         snippets = True
                     chunk = lines[:100]
                     if snippets:
-                       self.slack_upload(msg,'\n'.join(chunk))
+                        self.slack_upload(msg, '\n'.join(chunk))
                     else:
-                       buf = '\`\`\`' + '\n'.join(chunk) + '\`\`\`'
-                       self.log.debug(buf)
-                       yield buf
+                        buf = '\`\`\`' + '\n'.join(chunk) + '\`\`\`'
+                        self.log.debug(buf)
+                        yield buf
                     lines = lines[100:]
                 time.sleep(2)
             t.join()

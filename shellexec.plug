@@ -6,4 +6,4 @@ Module = shellexec
 Description = A plugin for Err, that allows users to run shell scripts and get the results in chat
 
 [Python]
-Version = 2+
+Version = 3+
