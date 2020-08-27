@@ -15,8 +15,8 @@ import time
 
 # Logger for the shell_exec command
 log = logging.getLogger("shell_exec")
-SCRIPT_PATH = '/data/errbot/cmds'
-SCRIPT_LOGS = '/data/logs/errbot/shellexec'
+SCRIPT_PATH = '/data/errbot/scripts'
+SCRIPT_LOGS = '/data/errbot/logs/shellexec'
 
 
 def status_to_string(exit_code):

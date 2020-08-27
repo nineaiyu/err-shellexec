@@ -19,8 +19,18 @@ Config options
 
 ```python
 SCRIPT_PATH = '/data/errbot/scripts'
-SCRIPT_LOGS = '/data/logs/errbot/shellexec'
+SCRIPT_LOGS = '/data/errbot/logs/shellexec'
 ```
+
+### install
+errbot server in /data/errbot/
+```
+cd /data/errbot/plugins/
+git clone https://github.com/nineaiyu/err-shellexec.git
+mkdir -pv /data/errbot/scripts  /data/errbot/logs/shellexec
+
+```
+
 
 Example
 =======
