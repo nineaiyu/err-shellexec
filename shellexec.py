@@ -19,7 +19,7 @@ SCRIPT_PATH = '/data/errbot/scripts'
 SCRIPT_LOGS = '/data/errbot/logs/shellexec'
 MAX_LINES = 5000
 SEND_MAX_LINES = 30
-PRESTR='#######################################'
+PRESTR=' ---------> '
 
 def status_to_string(exit_code):
     if exit_code == 0:
@@ -247,7 +247,7 @@ class ShellExec(BotPlugin):
 
             clines = 0
             bufs = []
-
+            NPRESTR = '@' + msg.frm.username + ' ' + PRESTR
             while t.isAlive() or not q.empty():
                 lines = []
                 while not q.empty():
@@ -268,7 +268,7 @@ class ShellExec(BotPlugin):
 
                     if clines > SEND_MAX_LINES and snippets:
                         snippets = False
-                        buf = PRESTR+"[{}] starting ...\n".format(command_name)
+                        buf = NPRESTR+"[{}] starting ...\n".format(command_name)
                         buf += '```' + '\n'.join(bufs[:SEND_MAX_LINES]) + '```'
                         self.log.debug(buf)
                         yield buf
@@ -277,13 +277,13 @@ class ShellExec(BotPlugin):
 
             t.join()
             if snippets:
-                buf = PRESTR+"[{}] starting ...\n".format(command_name)
+                buf = NPRESTR+"[{}] starting ...\n".format(command_name)
                 buf += '```' + '\n'.join(bufs[:SEND_MAX_LINES]) + '```'
                 self.log.debug(buf)
                 yield buf
             else:
                 self.slack_upload(msg, bufs)
-            yield PRESTR+"[{}] completed {}".format(command_name, status_to_string(proc.rc))
+            yield NPRESTR+"[{}] completed {}".format(command_name, status_to_string(proc.rc))
 
         self.log.debug("Updating metadata on command {} type {}".format(command_name, type(command_name)))
         new_method.__name__ = str(command_name)
