@@ -17,7 +17,9 @@ import time
 log = logging.getLogger("shell_exec")
 SCRIPT_PATH = '/data/errbot/scripts'
 SCRIPT_LOGS = '/data/errbot/logs/shellexec'
-
+MAX_LINES = 5000
+SEND_MAX_LINES = 30
+PRESTR='#######################################'
 
 def status_to_string(exit_code):
     if exit_code == 0:
@@ -25,8 +27,9 @@ def status_to_string(exit_code):
     return "unsuccessfully"
 
 
-def slack_upload(self, msg, buf):
-    self._bot.send_stream_content(msg._extras['room_id'], buf.encode("utf-8"), uuid.uuid1().hex + '.log')
+def slack_upload(self, msg, bufs):
+    contents = '\n'.join(bufs)
+    self._bot.send_stream_content(msg._extras['room_id'], contents.encode("utf-8"), uuid.uuid1().hex + '.log')
 
 
 class ProcRun(object):
@@ -238,9 +241,13 @@ class ShellExec(BotPlugin):
             t = threading.Thread(target=ProcRun.run_async,
                                  args=(proc, user), kwargs={'arg_str': args})
             t.start()
-            time.sleep(2)
-            snippets = False
-            sleeptime = 3
+            time.sleep(1)
+            snippets = True
+            sleeptime = 2
+
+            clines = 0
+            bufs = []
+
             while t.isAlive() or not q.empty():
                 lines = []
                 while not q.empty():
@@ -250,20 +257,33 @@ class ShellExec(BotPlugin):
                     lines.append(line.rstrip())
 
                 while len(lines) > 0:
-                    if len(lines) >= 20:
-                        snippets = True
-                    chunk = lines[:100000]
-                    if snippets:
-                        self.slack_upload(msg, '\n'.join(chunk))
-                        sleeptime = 10
-                    else:
-                        buf = '```' + '\n'.join(chunk) + '```'
+                    chunk = lines[:MAX_LINES]
+
+                    bufs += chunk
+                    clines += len(chunk)
+                    if clines > MAX_LINES:
+                        self.slack_upload(msg, bufs)
+                        clines = 0
+                        bufs = []
+
+                    if clines > SEND_MAX_LINES and snippets:
+                        snippets = False
+                        buf = PRESTR+"[{}] starting ...\n".format(command_name)
+                        buf += '```' + '\n'.join(bufs[:SEND_MAX_LINES]) + '```'
                         self.log.debug(buf)
                         yield buf
-                    lines = lines[100000:]
+                    lines = lines[MAX_LINES:]
                 time.sleep(sleeptime)
+
             t.join()
-            yield "[{}] completed {}".format(command_name, status_to_string(proc.rc))
+            if snippets:
+                buf = PRESTR+"[{}] starting ...\n".format(command_name)
+                buf += '```' + '\n'.join(bufs[:SEND_MAX_LINES]) + '```'
+                self.log.debug(buf)
+                yield buf
+            else:
+                self.slack_upload(msg, bufs)
+            yield PRESTR+"[{}] completed {}".format(command_name, status_to_string(proc.rc))
 
         self.log.debug("Updating metadata on command {} type {}".format(command_name, type(command_name)))
         new_method.__name__ = str(command_name)
