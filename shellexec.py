@@ -19,7 +19,8 @@ SCRIPT_PATH = '/data/errbot/scripts'
 SCRIPT_LOGS = '/data/errbot/logs/shellexec'
 MAX_LINES = 5000
 SEND_MAX_LINES = 30
-PRESTR=' ---------> '
+PRESTR = ' ---------> '
+
 
 def status_to_string(exit_code):
     if exit_code == 0:
@@ -261,29 +262,31 @@ class ShellExec(BotPlugin):
 
                     bufs += chunk
                     clines += len(chunk)
+
+                    if clines > SEND_MAX_LINES and snippets:
+                        snippets = False
+                        buf = NPRESTR + "[{}] starting ...\n".format(command_name)
+                        buf += '```' + '\n'.join(bufs[:SEND_MAX_LINES]) + '```'
+                        self.log.debug(buf)
+                        yield buf
+
                     if clines > MAX_LINES:
                         self.slack_upload(msg, bufs)
                         clines = 0
                         bufs = []
 
-                    if clines > SEND_MAX_LINES and snippets:
-                        snippets = False
-                        buf = NPRESTR+"[{}] starting ...\n".format(command_name)
-                        buf += '```' + '\n'.join(bufs[:SEND_MAX_LINES]) + '```'
-                        self.log.debug(buf)
-                        yield buf
                     lines = lines[MAX_LINES:]
                 time.sleep(sleeptime)
 
             t.join()
             if snippets:
-                buf = NPRESTR+"[{}] starting ...\n".format(command_name)
+                buf = NPRESTR + "[{}] starting ...\n".format(command_name)
                 buf += '```' + '\n'.join(bufs[:SEND_MAX_LINES]) + '```'
                 self.log.debug(buf)
                 yield buf
             else:
                 self.slack_upload(msg, bufs)
-            yield NPRESTR+"[{}] completed {}".format(command_name, status_to_string(proc.rc))
+            yield NPRESTR + "[{}] completed {}".format(command_name, status_to_string(proc.rc))
 
         self.log.debug("Updating metadata on command {} type {}".format(command_name, type(command_name)))
         new_method.__name__ = str(command_name)
